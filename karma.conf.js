@@ -32,6 +32,7 @@ module.exports = config => {
     ],
     // list of files / patterns to load in the browser
     files: [
+      "https://rawgit.com/jamesdbloom/mockserver-client-node/mockserver-5.5.1/mockServerClient.js",
       {
         pattern: "test/unit/**/*.spec.js",
         watched: false // The preprocessor will use its own watcher

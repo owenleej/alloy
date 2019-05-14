@@ -1,8 +1,4 @@
 import createComponent from "../../../../src/components/Context/createComponent";
-<<<<<<< HEAD
-=======
-import createPayload from "../../../../src/components/Network/createPayload";
->>>>>>> Work In Progress - add a network component
 
 describe("Context::createComponent", () => {
   const logger = {

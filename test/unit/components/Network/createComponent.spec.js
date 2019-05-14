@@ -23,7 +23,7 @@ describe("Network::createComponent", () => {
     const component = createComponent({ config }, networkStrategy);
     component.lifecycle.onComponentsRegistered({ lifecycle: nullLifecycle });
     const { send, beacon } = component.newRequest();
-    expect(beacon).toBeFalse();
+    expect(beacon).toBe(false);
     send();
   });
 
@@ -37,14 +37,15 @@ describe("Network::createComponent", () => {
     const component = createComponent({ config }, networkStrategy);
     component.lifecycle.onComponentsRegistered({ lifecycle: nullLifecycle });
     const { send, beacon } = component.newRequest(true);
-    expect(beacon).toBeTrue();
+    expect(beacon).toBe(true);
     send();
   });
 
   it("sends the payload", done => {
     const networkStrategy = (url, json) => {
-      return new Promise(() => {
+      return new Promise(resolve => {
         expect(JSON.parse(json).events[0]).toEqual({ id: "myevent1" });
+        resolve();
         done();
       });
     };
@@ -65,34 +66,35 @@ describe("Network::createComponent", () => {
     };
     const component = createComponent({ config }, networkStrategy);
     component.lifecycle.onComponentsRegistered({ lifecycle: nullLifecycle });
-    const { promise, send } = component.newRequest();
-    promise.then(({ response }) => {
-      expect(response.requestId).toEqual("myrequestid");
-      expect(response.handle).toEqual([]);
-      done();
-    });
+    const { response, send } = component.newRequest();
+    response
+      .then(({ body }) => {
+        const { requestId, handle } = JSON.parse(body);
+        expect(requestId).toEqual("myrequestid");
+        expect(handle).toEqual([]);
+        done();
+      })
+      .catch(done.fail);
     send();
   });
 
   it("rejects the returned promise", done => {
     const networkStrategy = () => {
       return new Promise((resolve, reject) => {
-        // eslint-disable-next-line prefer-promise-reject-errors
-        reject({ body: "badbody", exception: Error("myerror") });
+        reject(Error("myerror"));
       });
     };
     const component = createComponent({ config }, networkStrategy);
     component.lifecycle.onComponentsRegistered({ lifecycle: nullLifecycle });
-    const { promise, send } = component.newRequest();
-    promise.catch(({ body, exception }) => {
-      expect(body).toEqual("badbody");
-      expect(exception.message).toEqual("myerror");
+    const { response, send } = component.newRequest();
+    response.catch(error => {
+      expect(error.message).toEqual("myerror");
       done();
     });
     send();
   });
 
-  it("rejects the returned promise due to invalid json", done => {
+  it("resolves the promise even with invalid json", done => {
     const networkStrategy = () => {
       return new Promise(resolve => {
         resolve({ body: "badbody" });
@@ -100,12 +102,13 @@ describe("Network::createComponent", () => {
     };
     const component = createComponent({ config }, networkStrategy);
     component.lifecycle.onComponentsRegistered({ lifecycle: nullLifecycle });
-    const { promise, send } = component.newRequest();
-    promise.catch(({ body, exception }) => {
-      expect(body).toEqual("badbody");
-      expect(exception).toBeDefined();
-      done();
-    });
+    const { response, send } = component.newRequest();
+    response
+      .then(({ body }) => {
+        expect(body).toEqual("badbody");
+        done();
+      })
+      .catch(done.fail);
     send();
   });
 
@@ -143,10 +146,10 @@ describe("Network::createComponent", () => {
       let requestPayload;
       let requestPromise;
       const lifecycle = {
-        onBeforeSend: ({ payload, promise, beacon, send }) => {
+        onBeforeSend: ({ payload, response, beacon, send }) => {
           expect(send).toBeUndefined();
           expect(payload).toBe(requestPayload);
-          expect(promise).toBe(requestPromise);
+          expect(response).toBe(requestPromise);
           expect(beacon).toBe(b);
           done();
         },
@@ -155,9 +158,9 @@ describe("Network::createComponent", () => {
       const networkStrategy = () => new Promise(() => undefined);
       const component = createComponent({ config }, networkStrategy);
       component.lifecycle.onComponentsRegistered({ lifecycle });
-      const { payload, promise, send } = component.newRequest(b);
+      const { payload, response, send } = component.newRequest(b);
       requestPayload = payload;
-      requestPromise = promise;
+      requestPromise = response;
       send();
     });
   });
@@ -208,10 +211,10 @@ describe("Network::createComponent", () => {
     };
     const component = createComponent({ config }, networkStrategy);
     component.lifecycle.onComponentsRegistered({ lifecycle: nullLifecycle });
-    const { promise, send } = component.newRequest();
-    promise.catch(({ body: body1, promise: promise1 }) => {
+    const { response, send } = component.newRequest();
+    response.then(({ body: body1, promise: promise1 }) => {
       expect(body1).toEqual("badbody1");
-      promise1.catch(({ body: body2, promise: promise2 }) => {
+      promise1.then(({ body: body2, promise: promise2 }) => {
         expect(body2).toEqual("badbody2");
         expect(promise2).toBeUndefined();
         done();
@@ -220,26 +223,47 @@ describe("Network::createComponent", () => {
     send();
   });
 
-  it("handles network errors in streaming responses", done => {
+  it("logs json parse errors", done => {
     const networkStrategy = () => {
-      return new Promise(resolve1 => {
-        const promise = new Promise(resolve2 => {
-          resolve2({ body: "badbody2" });
-        });
-        resolve1({ body: "badbody1", promise });
+      return new Promise(resolve => {
+        resolve({ body: "badbody1" });
       });
     };
-    const component = createComponent({ config }, networkStrategy);
+    const logger = jasmine.createSpyObj("logger", ["warn"]);
+    const component = createComponent({ config, logger }, networkStrategy);
     component.lifecycle.onComponentsRegistered({ lifecycle: nullLifecycle });
-    const { promise, send } = component.newRequest();
-    promise.catch(({ body: body1, promise: promise1 }) => {
-      expect(body1).toEqual("badbody1");
-      promise1.catch(({ body: body2, promise: promise2 }) => {
-        expect(body2).toEqual("badbody2");
-        expect(promise2).toBeUndefined();
-        done();
-      });
-    });
+    const { send, complete } = component.newRequest();
     send();
+    complete
+      .then(() => {
+        expect(logger.warn).toHaveBeenCalledTimes(1);
+        done();
+      })
+      .catch(done.fail);
   });
+
+  it("doesn't try to parse the response on a beacon call", done => {
+    const networkStrategy = () => {
+      return Promise.resolve();
+    };
+    const logger = jasmine.createSpyObj("logger", ["warn"]);
+    const component = createComponent({ config, logger }, networkStrategy);
+    component.lifecycle.onComponentsRegistered({ lifecycle: nullLifecycle });
+    const { send, complete } = component.newRequest(true);
+    send();
+    complete
+      .then(() => {
+        expect(logger.warn).not.toHaveBeenCalled();
+        done();
+      })
+      .catch(done.fail);
+  });
+
+  /*
+  it("logs onResponseFragment lifecycle errors");
+
+  it("logs network errors", done => {
+    done();
+  });
+  */
 });

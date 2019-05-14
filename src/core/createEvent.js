@@ -10,7 +10,8 @@ OF ANY KIND, either express or implied. See the License for the specific languag
 governing permissions and limitations under the License.
 */
 
-import createPayloadItemMerger from "./createPayloadItemMerger";
+// TODO move this dependency to utils
+import createPayloadItemMerger from "../components/Network/createPayloadItemMerger";
 
 export default () => {
   const content = {};
